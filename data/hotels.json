@@ -1,0 +1,74 @@
+[
+  {
+    "hotel_name_standard": "Galaxy Macau",
+    "hotel_display_name": "Galaxy Macau",
+    "hotel_lat": 22.1493,
+    "hotel_lng": 113.55538,
+    "hotel_group": "Galaxy",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "The Venetian Macao",
+    "hotel_display_name": "The Venetian Macao",
+    "hotel_lat": 22.1482,
+    "hotel_lng": 113.560472,
+    "hotel_group": "Sands",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "The Parisian Macao",
+    "hotel_display_name": "The Parisian Macao",
+    "hotel_lat": 22.14374,
+    "hotel_lng": 113.56154,
+    "hotel_group": "Sands",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "Studio City Macau",
+    "hotel_display_name": "Studio City Macau",
+    "hotel_lat": 22.1405,
+    "hotel_lng": 113.5598,
+    "hotel_group": "Melco",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "The Londoner Macao",
+    "hotel_display_name": "The Londoner Macao",
+    "hotel_lat": 22.1467,
+    "hotel_lng": 113.5588,
+    "hotel_group": "Sands",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "MGM Cotai",
+    "hotel_display_name": "MGM Cotai",
+    "hotel_lat": 22.1416,
+    "hotel_lng": 113.5559,
+    "hotel_group": "MGM",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "Wynn Palace",
+    "hotel_display_name": "Wynn Palace",
+    "hotel_lat": 22.1499,
+    "hotel_lng": 113.5683,
+    "hotel_group": "Wynn",
+    "status": "active",
+    "note": ""
+  },
+  {
+    "hotel_name_standard": "Grand Lisboa",
+    "hotel_display_name": "Grand Lisboa",
+    "hotel_lat": 22.1905,
+    "hotel_lng": 113.5439,
+    "hotel_group": "SJM",
+    "status": "active",
+    "note": ""
+  }
+]

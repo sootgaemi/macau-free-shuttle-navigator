@@ -1,0 +1,122 @@
+[
+  {
+    "destination_raw": "국제공항",
+    "destination_standard": "Macau International Airport",
+    "google_maps_query": "Macau International Airport",
+    "note": ""
+  },
+  {
+    "destination_raw": "국제공항 (크리스털 로비)",
+    "destination_standard": "Macau International Airport",
+    "google_maps_query": "Macau International Airport",
+    "note": ""
+  },
+  {
+    "destination_raw": "국제공항 (West Lobby)",
+    "destination_standard": "Macau International Airport",
+    "google_maps_query": "Macau International Airport",
+    "note": ""
+  },
+  {
+    "destination_raw": "국제공항 (메인 로비)",
+    "destination_standard": "Macau International Airport",
+    "google_maps_query": "Macau International Airport",
+    "note": ""
+  },
+  {
+    "destination_raw": "타이파페리터미널",
+    "destination_standard": "Taipa Ferry Terminal",
+    "google_maps_query": "Taipa Ferry Terminal Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "외항터미널",
+    "destination_standard": "Outer Harbour Ferry Terminal",
+    "google_maps_query": "Outer Harbour Ferry Terminal Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "보더게이트",
+    "destination_standard": "Border Gate",
+    "google_maps_query": "Border Gate Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "헝친항",
+    "destination_standard": "Hengqin Port",
+    "google_maps_query": "Hengqin Port Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "HZMB",
+    "destination_standard": "HZMB Macau Port",
+    "google_maps_query": "Hong Kong-Zhuhai-Macao Bridge Macau Port",
+    "note": ""
+  },
+  {
+    "destination_raw": "MZMB",
+    "destination_standard": "HZMB Macau Port",
+    "google_maps_query": "Hong Kong-Zhuhai-Macao Bridge Macau Port",
+    "note": ""
+  },
+  {
+    "destination_raw": "브로드웨이",
+    "destination_standard": "Broadway Macau",
+    "google_maps_query": "Broadway Hotel Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "Sands Macau",
+    "destination_standard": "Sands Macao",
+    "google_maps_query": "Sands Macao",
+    "note": ""
+  },
+  {
+    "destination_raw": "Macau Tower",
+    "destination_standard": "Macau Tower",
+    "google_maps_query": "Macau Tower",
+    "note": ""
+  },
+  {
+    "destination_raw": "Macao Tower",
+    "destination_standard": "Macau Tower",
+    "google_maps_query": "Macau Tower",
+    "note": ""
+  },
+  {
+    "destination_raw": "센트럴 디스트릭트",
+    "destination_standard": "Central District Macau",
+    "google_maps_query": "Macau Peninsula Central District",
+    "note": ""
+  },
+  {
+    "destination_raw": "올드타이파빌리지",
+    "destination_standard": "Old Taipa Village",
+    "google_maps_query": "Taipa Village Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "호텔 리스보아",
+    "destination_standard": "Hotel Lisboa",
+    "google_maps_query": "Hotel Lisboa Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "그랜드 리스보아",
+    "destination_standard": "Grand Lisboa",
+    "google_maps_query": "Grand Lisboa Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "Grand Lisboa",
+    "destination_standard": "Grand Lisboa",
+    "google_maps_query": "Grand Lisboa Macau",
+    "note": ""
+  },
+  {
+    "destination_raw": "뉴야오한",
+    "destination_standard": "New Yaohan",
+    "google_maps_query": "New Yaohan Macau",
+    "note": ""
+  }
+]
