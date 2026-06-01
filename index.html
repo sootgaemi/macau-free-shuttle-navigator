@@ -2,86 +2,114 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
   <title>Macau Free Shuttle Navigator</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div class="app">
-    <header class="header">
-      <h1>Macau Free Shuttle Navigator</h1>
-      <p>마카오 무료 셔틀 기반 경로 추천 V1</p>
+  <div class="app-shell">
+    <header class="top-header">
+      <div class="brand-wrap">
+        <h1>마카오 무료 셔틀</h1>
+        <p>모바일 경로 추천</p>
+      </div>
+      <button id="toggleSheetBtn" class="header-icon-btn" type="button" aria-label="결과 보기">
+        ☰
+      </button>
     </header>
 
-    <main class="dashboard">
-      <section class="search-panel">
-        <label for="currentInput">현재 위치 / 출발지</label>
-        <input id="currentInput" type="text" placeholder="예: Galaxy Hotel, Macau" />
+    <section class="search-panel">
+      <div class="tab-row">
+        <button id="tabShuttle" class="mode-tab active" type="button">셔틀</button>
+        <button id="tabWalk" class="mode-tab" type="button">도보</button>
+        <button id="tabBus" class="mode-tab" type="button">버스</button>
+      </div>
 
-        <div class="map-pick-group">
-          <button id="pickCurrentBtn" type="button" class="secondary-btn">지도에서 출발지 찍기</button>
+      <div class="search-card">
+        <div class="input-row">
+          <span class="point start"></span>
+          <input id="currentInput" type="text" placeholder="출발지 입력" autocomplete="off" />
+          <button id="pickCurrentBtn" class="mini-btn" type="button">지도</button>
         </div>
 
-        <div class="swap-wrap">
-          <button id="swapBtn" type="button" class="swap-btn">출발지 ↔ 목적지 바꾸기</button>
+        <button id="swapBtn" class="swap-btn" type="button" aria-label="출발지 목적지 바꾸기">
+          ⇅
+        </button>
+
+        <div class="input-row">
+          <span class="point end"></span>
+          <input id="destinationInput" type="text" placeholder="목적지 입력" autocomplete="off" />
+          <button id="pickDestinationBtn" class="mini-btn" type="button">지도</button>
         </div>
+      </div>
 
-        <label for="destinationInput">목적지</label>
-        <input id="destinationInput" type="text" placeholder="예: Macau Tower, 마카오" />
-
-        <div class="map-pick-group">
-          <button id="pickDestinationBtn" type="button" class="secondary-btn">지도에서 목적지 찍기</button>
-        </div>
-
-        <div id="mapPickStatus" class="map-pick-status">지도 클릭 기능 대기중</div>
-
-        <label for="optionType">추천 옵션</label>
+      <div class="option-row">
         <select id="optionType">
           <option value="fastest">가장 빠름</option>
           <option value="leastWalk">적게 걷기</option>
           <option value="leastTransfer">환승 최소</option>
         </select>
+        <button id="searchBtn" type="button">경로 찾기</button>
+      </div>
 
-        <button id="searchBtn" type="button" class="primary-btn">무료 셔틀 경로 찾기</button>
+      <div id="mapPickStatus" class="map-pick-status">지도 클릭 기능 대기중</div>
+      <div id="modeNotice" class="mode-notice">기본 모드는 셔틀입니다.</div>
+    </section>
 
-        <div class="info-box">
-          <strong>현재 단계</strong>
-          <p>도보/차량 시간은 Google Maps 기준으로 계산합니다.</p>
-          <p>출발지와 목적지는 자동완성 목록에서 선택하거나, 지도에서 직접 찍을 수 있습니다.</p>
-        </div>
+    <main class="map-stage">
+      <div id="mapClickHint" class="map-click-hint hidden">지도 클릭 대기중</div>
 
-        <div class="legend-box">
-          <strong>지도 범례</strong>
-          <div class="legend-item">
-            <span class="legend-line walking-start"></span>
-            <span>출발지 → 탑승지 도보</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-line shuttle-line"></span>
-            <span>셔틀 이동</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-line walking-end"></span>
-            <span>하차지 → 목적지 도보</span>
-          </div>
-        </div>
-      </section>
+      <div class="map-actions left">
+        <button id="myLocationBtn" class="map-pill-btn" type="button">내 위치</button>
+      </div>
 
-      <section class="result-panel">
-        <h2>추천 결과</h2>
-        <div id="resultList" class="result-list">
-          <p>아직 검색 결과가 없습니다.</p>
-        </div>
-      </section>
+      <div class="map-actions right">
+        <button id="centerMapBtn" class="map-round-btn" type="button" aria-label="지도 중심">
+          ◎
+        </button>
+      </div>
 
-      <section class="map-panel">
-        <h2>지도</h2>
-        <div class="map-wrap">
-          <div id="mapClickHint" class="map-click-hint hidden">지도 클릭 대기중</div>
-          <div id="map"></div>
-        </div>
-      </section>
+      <div id="map"></div>
     </main>
+
+    <section id="bottomSheet" class="bottom-sheet">
+      <div id="sheetHandle" class="sheet-handle-wrap">
+        <div class="sheet-handle"></div>
+      </div>
+
+      <div class="sheet-header">
+        <div>
+          <h2 id="sheetTitle">추천 경로</h2>
+          <p id="sheetSubtitle">지도를 보며 비교할 수 있습니다.</p>
+        </div>
+        <button id="collapseSheetBtn" class="text-btn" type="button">접기</button>
+      </div>
+
+      <div id="resultList" class="result-list">
+        <div class="empty-state">
+          <strong>아직 검색 결과가 없습니다.</strong>
+          <p>출발지와 목적지를 입력한 뒤 경로를 검색해주세요.</p>
+        </div>
+      </div>
+
+      <div class="legend-box">
+        <div class="legend-item">
+          <span class="legend-line walking-start"></span>
+          <span>출발지 → 탑승지 도보</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-line shuttle-line"></span>
+          <span>셔틀 이동</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-line walking-end"></span>
+          <span>하차지 → 목적지 도보</span>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script src="./app.js"></script>

@@ -7,7 +7,7 @@ const SETTINGS = {
   DROP_CLOSER_MARGIN_M: 200,
   MAX_LAST_WALK_M: 1500,
   DIRECT_WALK_PRIORITY_M: 1200,
-  HOTEL_FINAL_WALK_IGNORE_M: 120
+  HOTEL_FINAL_WALK_IGNORE_M: 120,
 };
 
 const MACAU_BOUNDS = {
@@ -26,7 +26,7 @@ const HOTEL_ALIASES = {
   "MGM Macau": ["mgm", "mgm macau"],
   "Wynn Macau": ["wynn", "wynn macau"],
   "Grand Lisboa": ["grand lisboa", "grand lisboa macau", "그랜드 리스보아", "그랜드리스보아"],
-  "Hotel Lisboa": ["hotel lisboa", "리스보아 호텔", "호텔 리스보아"]
+  "Hotel Lisboa": ["hotel lisboa", "리스보아 호텔", "호텔 리스보아"],
 };
 
 let map;
@@ -41,12 +41,14 @@ let selectedRouteIndex = 0;
 let currentAutocomplete = null;
 let destinationAutocomplete = null;
 let isSearching = false;
-let mapPickMode = null; // "current" | "destination" | null
+let mapPickMode = null;
+let currentMode = "shuttle"; // shuttle | walk | bus
+
 let latestSearchContext = {
   nearHotelNotice: "",
   targetHotelName: "",
   targetHotelByNearby: false,
-  directWalk: null
+  directWalk: null,
 };
 
 async function loadJson(path) {
@@ -63,7 +65,6 @@ async function loadAppData() {
     loadJson("./data/destinations.json"),
     loadJson("./data/routes.json"),
   ]);
-
   return { hotels, destinations, routes };
 }
 
@@ -86,32 +87,53 @@ function loadGoogleMapsScript() {
 
 function setSearchLoading(loading) {
   isSearching = loading;
-
   const searchBtn = document.getElementById("searchBtn");
   const resultList = document.getElementById("resultList");
-  const mapEl = document.getElementById("map");
 
   if (searchBtn) {
     searchBtn.disabled = loading;
-    searchBtn.textContent = loading ? "경로 검색중..." : "무료 셔틀 경로 찾기";
-    searchBtn.style.opacity = loading ? "0.7" : "1";
-    searchBtn.style.cursor = loading ? "not-allowed" : "pointer";
+    searchBtn.textContent = loading ? "검색중..." : "경로 찾기";
   }
 
   if (loading && resultList) {
     resultList.innerHTML = `
-      <div class="route-card" style="border: 2px solid #4f6de6; background: #f5f8ff;">
+      <div class="route-card active">
         <div class="badge">검색중</div>
-        <h3>경로를 검색하고 있습니다</h3>
-        <p><strong>잠시만 기다려주세요.</strong></p>
-        <p>호텔 셔틀, 도보 경로, 소요시간을 계산 중입니다.</p>
+        <h3>경로를 계산하고 있습니다</h3>
+        <p>잠시만 기다려주세요.</p>
       </div>
     `;
   }
+}
 
-  if (mapEl) {
-    mapEl.style.opacity = loading ? "0.75" : "1";
-    mapEl.style.transition = "opacity 0.2s ease";
+function setMode(mode) {
+  currentMode = mode;
+
+  const tabs = {
+    shuttle: document.getElementById("tabShuttle"),
+    walk: document.getElementById("tabWalk"),
+    bus: document.getElementById("tabBus"),
+  };
+
+  Object.values(tabs).forEach((btn) => btn?.classList.remove("active"));
+  tabs[mode]?.classList.add("active");
+
+  const modeNotice = document.getElementById("modeNotice");
+  const sheetTitle = document.getElementById("sheetTitle");
+  const sheetSubtitle = document.getElementById("sheetSubtitle");
+
+  if (mode === "shuttle") {
+    modeNotice.textContent = "기본 모드는 셔틀입니다.";
+    sheetTitle.textContent = "추천 경로";
+    sheetSubtitle.textContent = "셔틀 중심 경로를 비교할 수 있습니다.";
+  } else if (mode === "walk") {
+    modeNotice.textContent = "도보 직행 경로를 보여줍니다.";
+    sheetTitle.textContent = "도보 경로";
+    sheetSubtitle.textContent = "출발지에서 목적지까지 직접 걷는 경로입니다.";
+  } else {
+    modeNotice.textContent = "버스 기능은 준비중입니다.";
+    sheetTitle.textContent = "버스";
+    sheetSubtitle.textContent = "향후 마카오 일반 버스 기능을 지원할 예정입니다.";
   }
 }
 
@@ -131,23 +153,17 @@ function setMapPickMode(mode) {
   if (mode === "current") {
     currentBtn?.classList.add("active");
     statusEl?.classList.add("active");
-    statusEl.textContent = "지도에서 출발지로 사용할 위치를 클릭하세요.";
-    if (hintEl) {
-      hintEl.textContent = "출발지 설정 모드: 지도에서 위치를 클릭하세요.";
-      hintEl.classList.remove("hidden");
-    }
+    statusEl.textContent = "지도에서 출발지를 선택하세요.";
+    hintEl.textContent = "출발지 선택 모드";
+    hintEl.classList.remove("hidden");
   } else if (mode === "destination") {
     destinationBtn?.classList.add("active");
     statusEl?.classList.add("active");
-    statusEl.textContent = "지도에서 목적지로 사용할 위치를 클릭하세요.";
-    if (hintEl) {
-      hintEl.textContent = "목적지 설정 모드: 지도에서 위치를 클릭하세요.";
-      hintEl.classList.remove("hidden");
-    }
+    statusEl.textContent = "지도에서 목적지를 선택하세요.";
+    hintEl.textContent = "목적지 선택 모드";
+    hintEl.classList.remove("hidden");
   } else {
-    if (statusEl) {
-      statusEl.textContent = "지도 클릭 기능 대기중";
-    }
+    statusEl.textContent = "지도 클릭 기능 대기중";
   }
 }
 
@@ -275,22 +291,14 @@ function detectHotelByText(hotelCatalog, rawText) {
 function normalizeRoutePoint(point) {
   if (!point) return null;
 
-  if (typeof point === "string") {
-    return point;
-  }
+  if (typeof point === "string") return point;
 
   if (typeof point.lat === "number" && typeof point.lng === "number") {
-    return {
-      lat: Number(point.lat),
-      lng: Number(point.lng),
-    };
+    return { lat: Number(point.lat), lng: Number(point.lng) };
   }
 
   if (typeof point.lat === "function" && typeof point.lng === "function") {
-    return {
-      lat: Number(point.lat()),
-      lng: Number(point.lng()),
-    };
+    return { lat: Number(point.lat()), lng: Number(point.lng()) };
   }
 
   if (
@@ -326,7 +334,6 @@ function getPlaceLocationString(placeObj) {
 function clearMapOverlays() {
   routeOverlays.forEach((item) => item.setMap(null));
   routeOverlays = [];
-
   mapMarkers.forEach((item) => item.setMap(null));
   mapMarkers = [];
 }
@@ -356,14 +363,11 @@ function addMarker(position, title, labelText, color, infoContent = "") {
 
   if (infoContent) {
     const infoWindow = new google.maps.InfoWindow({
-      content: `<div style="font-size:13px;line-height:1.4;"><strong>${labelText}</strong><br>${infoContent}</div>`
+      content: `<div style="font-size:13px;line-height:1.45;"><strong>${labelText}</strong><br>${infoContent}</div>`,
     });
 
     marker.addListener("click", () => {
-      infoWindow.open({
-        anchor: marker,
-        map,
-      });
+      infoWindow.open({ anchor: marker, map });
     });
   }
 
@@ -635,9 +639,7 @@ async function detectNearestHotelByLocation(hotelCatalog, destinationLocation) {
         bestDistance = distanceMeters;
         bestHotel = hotel;
       }
-    } catch (error) {
-      // ignore
-    }
+    } catch (error) {}
   }
 
   if (bestHotel && bestDistance <= SETTINGS.HOTEL_DEST_RADIUS_M) {
@@ -655,14 +657,14 @@ function buildDirectWalkCard(directWalk) {
     directWalkDistanceMeters: directWalk.distanceMeters,
     totalMinutes: directWalk.minutes,
     calcNote: "도보 직행",
-    note: "셔틀을 이용하지 않고 바로 도보로 이동하는 경로",
+    note: "셔틀을 이용하지 않고 바로 이동하는 경로",
     originForDraw: currentPlace.location,
     destinationForDraw: destinationPlace.location,
     walkStartFallback: directWalk.isFallback
       ? { from: directWalk.fallbackFrom, to: directWalk.fallbackTo }
       : null,
     walk2Minutes: 0,
-    nearHotelNotice: latestSearchContext.nearHotelNotice || ""
+    nearHotelNotice: latestSearchContext.nearHotelNotice || "",
   };
 }
 
@@ -677,12 +679,10 @@ async function buildHotelModeCandidates({
   const errors = [];
 
   const targetHotelWalk = await computeWalkingRouteFlexible(currentOrigin, targetHotel.hotel_query);
-
   const hotelToActualDestination = await computeWalkingRouteFlexible(
     targetHotel.hotel_query,
     actualDestination
   );
-
   const finalWalkFromHotelNeeded =
     hotelToActualDestination.distanceMeters > SETTINGS.HOTEL_FINAL_WALK_IGNORE_M;
 
@@ -698,9 +698,7 @@ async function buildHotelModeCandidates({
       const walkToBoarding = await computeWalkingRouteFlexible(currentOrigin, externalStop);
       const shuttleDrive = await computeDrivingRouteStrict(externalStop, targetHotel.hotel_query);
 
-      if (walkToBoarding.distanceMeters >= targetHotelWalk.distanceMeters - 50) {
-        continue;
-      }
+      if (walkToBoarding.distanceMeters >= targetHotelWalk.distanceMeters - 50) continue;
 
       const walk2Minutes = finalWalkFromHotelNeeded ? hotelToActualDestination.minutes : 0;
       const walk2DistanceMeters = finalWalkFromHotelNeeded ? hotelToActualDestination.distanceMeters : 0;
@@ -739,7 +737,7 @@ async function buildHotelModeCandidates({
         direction_display: route.direction_inbound_time || route.direction_outbound_time,
         headway_display: route.headway,
         note: `목적지 호텔(${targetHotel.hotel_display_name}) 운행 셔틀 활용`,
-        nearHotelNotice: latestSearchContext.nearHotelNotice || ""
+        nearHotelNotice: latestSearchContext.nearHotelNotice || "",
       });
     } catch (error) {
       errors.push({
@@ -753,9 +751,7 @@ async function buildHotelModeCandidates({
 
   for (const route of routes) {
     try {
-      if (route.hotel_display_name === targetHotel.hotel_display_name) {
-        continue;
-      }
+      if (route.hotel_display_name === targetHotel.hotel_display_name) continue;
 
       const boardingPoint = getHotelBoardingPoint(route);
       const destinationMeta = getDestinationMeta(route, destinations);
@@ -764,13 +760,8 @@ async function buildHotelModeCandidates({
       const shuttleDrive = await computeDrivingRouteStrict(boardingPoint, destinationMeta.query);
       const walkAfterDrop = await computeWalkingRouteFlexible(destinationMeta.query, actualDestination);
 
-      if (walkAfterDrop.distanceMeters > SETTINGS.MAX_LAST_WALK_M) {
-        continue;
-      }
-
-      if (walkAfterDrop.distanceMeters > walkToBoarding.distanceMeters + SETTINGS.DROP_CLOSER_MARGIN_M) {
-        continue;
-      }
+      if (walkAfterDrop.distanceMeters > SETTINGS.MAX_LAST_WALK_M) continue;
+      if (walkAfterDrop.distanceMeters > walkToBoarding.distanceMeters + SETTINGS.DROP_CLOSER_MARGIN_M) continue;
 
       if (
         targetHotelWalk.distanceMeters <= SETTINGS.DIRECT_WALK_PRIORITY_M &&
@@ -812,7 +803,7 @@ async function buildHotelModeCandidates({
         direction_display: route.direction_outbound_time,
         headway_display: route.headway,
         note: route.note || "",
-        nearHotelNotice: latestSearchContext.nearHotelNotice || ""
+        nearHotelNotice: latestSearchContext.nearHotelNotice || "",
       });
     } catch (error) {
       errors.push({
@@ -831,7 +822,7 @@ async function buildGeneralCandidates({
   routes,
   destinations,
   currentOrigin,
-  finalDestination
+  finalDestination,
 }) {
   const candidates = [];
   const errors = [];
@@ -847,13 +838,8 @@ async function buildGeneralCandidates({
       const shuttleDrive = await computeDrivingRouteStrict(boardingPoint, destinationMeta.query);
       const walkAfterDrop = await computeWalkingRouteFlexible(destinationMeta.query, finalDestination);
 
-      if (walkAfterDrop.distanceMeters > SETTINGS.MAX_LAST_WALK_M) {
-        continue;
-      }
-
-      if (walkAfterDrop.distanceMeters > walkToBoarding.distanceMeters + SETTINGS.DROP_CLOSER_MARGIN_M) {
-        continue;
-      }
+      if (walkAfterDrop.distanceMeters > SETTINGS.MAX_LAST_WALK_M) continue;
+      if (walkAfterDrop.distanceMeters > walkToBoarding.distanceMeters + SETTINGS.DROP_CLOSER_MARGIN_M) continue;
 
       if (
         directWalkToDestination.distanceMeters <= SETTINGS.DIRECT_WALK_PRIORITY_M &&
@@ -895,7 +881,7 @@ async function buildGeneralCandidates({
         direction_display: route.direction_outbound_time,
         headway_display: route.headway,
         note: route.note || "",
-        nearHotelNotice: latestSearchContext.nearHotelNotice || ""
+        nearHotelNotice: latestSearchContext.nearHotelNotice || "",
       });
     } catch (error) {
       errors.push({
@@ -911,7 +897,7 @@ async function buildGeneralCandidates({
   return { candidates, errors };
 }
 
-async function recommendRoutes(routes, destinations, currentPlaceObj, destinationPlaceObj) {
+async function recommendShuttleRoutes(routes, destinations, currentPlaceObj, destinationPlaceObj) {
   const activeRoutes = routes.filter((route) => route.status === "active");
 
   const currentOrigin = currentPlaceObj?.location || getPlaceLocationString(currentPlaceObj);
@@ -927,7 +913,7 @@ async function recommendRoutes(routes, destinations, currentPlaceObj, destinatio
     nearHotelNotice: "",
     targetHotelName: "",
     targetHotelByNearby: false,
-    directWalk: null
+    directWalk: null,
   };
 
   let targetHotel =
@@ -975,7 +961,6 @@ async function recommendRoutes(routes, destinations, currentPlaceObj, destinatio
   console.log("route calculation errors raw:", JSON.stringify(errors, null, 2));
 
   candidates.sort((a, b) => a.totalMinutes - b.totalMinutes);
-
   const topCandidates = candidates.slice(0, SETTINGS.MAX_RESULTS);
 
   if (topCandidates.length === 0 || directWalk.minutes < topCandidates[0].totalMinutes) {
@@ -986,24 +971,38 @@ async function recommendRoutes(routes, destinations, currentPlaceObj, destinatio
   return topCandidates;
 }
 
+async function recommendWalkOnly(currentPlaceObj, destinationPlaceObj) {
+  const currentOrigin = currentPlaceObj?.location || getPlaceLocationString(currentPlaceObj);
+  const finalDestination = destinationPlaceObj?.location || getPlaceLocationString(destinationPlaceObj);
+
+  if (!currentOrigin) throw new Error("현재 위치/출발지 정보가 없습니다.");
+  if (!finalDestination) throw new Error("목적지 정보가 없습니다.");
+
+  const directWalk = await computeWalkingRouteFlexible(currentOrigin, finalDestination);
+  latestSearchContext.directWalk = directWalk;
+
+  return [buildDirectWalkCard(directWalk)];
+}
+
 function renderResults(results) {
   latestResults = results;
   const resultList = document.getElementById("resultList");
 
   if (!results.length) {
     resultList.innerHTML = `
-      <p>현재 조건에서 추천 가능한 노선이 없습니다.</p>
-      <p style="color:#666; font-size:14px;">콘솔(F12)의 route calculation errors raw 로그를 확인해주세요.</p>
+      <div class="empty-state">
+        <strong>추천 가능한 경로가 없습니다.</strong>
+        <p>출발지와 목적지를 다시 확인해주세요.</p>
+      </div>
     `;
     return;
   }
 
   resultList.innerHTML = results
     .map((route, index) => {
-      const nearHotelNoticeBlock =
-        route.nearHotelNotice
-          ? `<div style="margin-bottom:10px;padding:8px 10px;border-radius:10px;background:#eef4ff;color:#2747c7;font-size:13px;font-weight:700;">${route.nearHotelNotice}</div>`
-          : "";
+      const nearHotelNoticeBlock = route.nearHotelNotice
+        ? `<div style="margin-bottom:10px;padding:8px 10px;border-radius:10px;background:#eef4ff;color:#2747c7;font-size:13px;font-weight:700;">${route.nearHotelNotice}</div>`
+        : "";
 
       if (route.recommendation_mode === "direct_walk") {
         return `
@@ -1011,38 +1010,28 @@ function renderResults(results) {
             <div class="badge">추천 ${index + 1}</div>
             ${nearHotelNoticeBlock}
             <h3>도보 직행</h3>
-            <p><strong>도보 직행:</strong> ${formatKmFromMeters(route.directWalkDistanceMeters)} / 약 ${route.directWalkMinutes}분</p>
-            <p><strong>총 예상시간:</strong> 약 ${route.totalMinutes}분</p>
-            <p><strong>시간 계산 방식:</strong> ${route.calcNote}</p>
+            <p><strong>총 ${route.directWalkMinutes}분</strong></p>
+            <p><strong>거리:</strong> ${formatKmFromMeters(route.directWalkDistanceMeters)}</p>
             <p><strong>비고:</strong> ${route.note || "-"}</p>
           </div>
         `;
       }
 
-      const walk1Block = `
-        <p><strong>도보 이동 (${formatKmFromMeters(route.walk1DistanceMeters)} / 약 ${route.walk1Minutes}분 소요):</strong> 출발지 → ${route.walk1LabelTo}(탑승)</p>
-      `;
-
-      const shuttleBlock = `
-        <p><strong>호텔 셔틀 이용:</strong> ${route.shuttleBusName} (${route.direction_display || "-"} / ${route.headway_display || "-"})</p>
-        <p><strong>셔틀 이동 (${formatKmFromMeters(route.shuttleDistanceMeters)} / 약 ${route.shuttleMinutes}분 소요):</strong> ${route.shuttleFromLabel}(탑승) → ${route.shuttleToLabel}(하차)</p>
-      `;
-
-      const walk2Block =
-        route.walk2Minutes > 0
-          ? `<p><strong>도보 이동 2 (${formatKmFromMeters(route.walk2DistanceMeters)} / 약 ${route.walk2Minutes}분 소요):</strong> ${route.walk2LabelFrom}(하차) → ${route.walk2LabelTo}</p>`
-          : "";
+      const walk2Block = route.walk2Minutes > 0
+        ? `<p><strong>도보 2:</strong> ${route.walk2Minutes}분 · ${formatKmFromMeters(route.walk2DistanceMeters)}</p>`
+        : "";
 
       return `
         <div class="route-card ${index === selectedRouteIndex ? "active" : ""}" data-route-index="${index}">
           <div class="badge">추천 ${index + 1}</div>
           ${nearHotelNoticeBlock}
           <h3>${route.title_display}</h3>
-          ${walk1Block}
-          ${shuttleBlock}
+          <p><strong>총 ${route.totalMinutes}분</strong></p>
+          <p><strong>도보 1:</strong> ${route.walk1Minutes}분 · ${formatKmFromMeters(route.walk1DistanceMeters)}</p>
+          <p><strong>셔틀:</strong> ${route.shuttleMinutes}분 · ${formatKmFromMeters(route.shuttleDistanceMeters)}</p>
+          <p><strong>노선:</strong> ${route.shuttleBusName}</p>
+          <p><strong>운행:</strong> ${route.direction_display || "-"} / ${route.headway_display || "-"}</p>
           ${walk2Block}
-          <p><strong>총 예상시간:</strong> 약 ${route.totalMinutes}분</p>
-          <p><strong>시간 계산 방식:</strong> ${route.calcNote}</p>
           <p><strong>비고:</strong> ${route.note || "-"}</p>
         </div>
       `;
@@ -1053,7 +1042,6 @@ function renderResults(results) {
     card.addEventListener("click", async () => {
       selectedRouteIndex = Number(card.dataset.routeIndex);
       renderResults(latestResults);
-
       const selectedRoute = latestResults[selectedRouteIndex];
       if (selectedRoute) {
         await drawRecommendedRoute(selectedRoute);
@@ -1062,9 +1050,20 @@ function renderResults(results) {
   });
 }
 
+function renderBusPlaceholder() {
+  const resultList = document.getElementById("resultList");
+  resultList.innerHTML = `
+    <div class="route-card active">
+      <div class="badge">준비중</div>
+      <h3>버스 기능</h3>
+      <p>현재 버스 모드는 아직 구현 전입니다.</p>
+      <p>향후 마카오 일반 버스 노선 데이터 또는 대중교통 API 연동 후 지원 예정입니다.</p>
+    </div>
+  `;
+}
+
 async function drawRecommendedRoute(route) {
   clearMapOverlays();
-
   const bounds = new google.maps.LatLngBounds();
 
   if (route.recommendation_mode === "direct_walk") {
@@ -1074,7 +1073,14 @@ async function drawRecommendedRoute(route) {
       await drawSegment(route.originForDraw, route.destinationForDraw, google.maps.TravelMode.WALKING, "walkStart");
     }
 
-    addMarker(currentPlace.location, "출발지", "출발지", "#2563eb", currentPlace.displayName || currentPlace.formattedAddress || "");
+    addMarker(
+      currentPlace.location,
+      "출발지",
+      "출발",
+      "#2563eb",
+      currentPlace.displayName || currentPlace.formattedAddress || ""
+    );
+
     addMarker(
       destinationPlace.location,
       destinationPlace.displayName || destinationPlace.formattedAddress || "목적지",
@@ -1105,12 +1111,31 @@ async function drawRecommendedRoute(route) {
 
   const boardingLatLng = await geocodeAddress(route.boardingForDraw);
 
-  addMarker(currentPlace.location, "출발지", "출발지", "#2563eb", currentPlace.displayName || currentPlace.formattedAddress || "");
-  addMarker(boardingLatLng, route.boardingLabel || "탑승지", "탑승지", "#16a34a", route.boardingLabel || "");
+  addMarker(
+    currentPlace.location,
+    "출발지",
+    "출발",
+    "#2563eb",
+    currentPlace.displayName || currentPlace.formattedAddress || ""
+  );
+
+  addMarker(
+    boardingLatLng,
+    route.boardingLabel || "탑승지",
+    "탑승",
+    "#16a34a",
+    route.boardingLabel || ""
+  );
 
   try {
     const dropoffLatLng = await geocodeAddress(route.dropoffForDraw);
-    addMarker(dropoffLatLng, route.dropOffLabel || "하차지", "하차지", "#ea580c", route.dropOffLabel || "");
+    addMarker(
+      dropoffLatLng,
+      route.dropOffLabel || "하차지",
+      "하차",
+      "#22a34a",
+      route.dropOffLabel || ""
+    );
     bounds.extend(normalizeRoutePoint(dropoffLatLng));
   } catch (error) {
     console.warn("하차지 지오코딩 실패:", error.message);
@@ -1170,7 +1195,6 @@ async function resolvePlaceIfNeeded(type) {
   }
 
   const geocodedLocation = await geocodeAddress(text);
-
   const lat = typeof geocodedLocation.lat === "function" ? geocodedLocation.lat() : geocodedLocation.lat;
   const lng = typeof geocodedLocation.lng === "function" ? geocodedLocation.lng() : geocodedLocation.lng;
 
@@ -1222,11 +1246,8 @@ async function applyMapPickedLocation(type, latLng) {
 
     inputEl.value = placeData.displayName;
 
-    if (type === "current") {
-      currentPlace = placeData;
-    } else {
-      destinationPlace = placeData;
-    }
+    if (type === "current") currentPlace = placeData;
+    else destinationPlace = placeData;
 
     setMapPickMode(null);
   } catch (error) {
@@ -1235,16 +1256,34 @@ async function applyMapPickedLocation(type, latLng) {
   }
 }
 
+function setupBottomSheet() {
+  const bottomSheet = document.getElementById("bottomSheet");
+  const toggleBtn = document.getElementById("toggleSheetBtn");
+  const collapseBtn = document.getElementById("collapseSheetBtn");
+  const handle = document.getElementById("sheetHandle");
+
+  function toggleSheet() {
+    bottomSheet.classList.toggle("collapsed");
+  }
+
+  toggleBtn?.addEventListener("click", toggleSheet);
+  collapseBtn?.addEventListener("click", toggleSheet);
+  handle?.addEventListener("click", toggleSheet);
+}
+
 async function initMapAndAutocomplete() {
   await loadGoogleMapsScript();
 
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 22.1666, lng: 113.5461 },
-    zoom: 12,
+    zoom: 13,
     restriction: {
       latLngBounds: MACAU_BOUNDS,
       strictBounds: false,
     },
+    streetViewControl: false,
+    mapTypeControl: false,
+    fullscreenControl: false,
   });
 
   map.addListener("click", async (event) => {
@@ -1319,16 +1358,117 @@ async function initMapAndAutocomplete() {
   destinationInput.addEventListener("input", () => {
     destinationPlace = null;
   });
+
+  document.getElementById("myLocationBtn")?.addEventListener("click", () => {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+
+        if (!isInsideMacau(lat, lng)) {
+          alert("현재 위치가 마카오 외 지역으로 확인됩니다.");
+          return;
+        }
+
+        map.panTo({ lat, lng });
+        map.setZoom(16);
+
+        try {
+          const placeData = await reverseGeocodeLatLng({ lat, lng });
+          currentPlace = placeData;
+          document.getElementById("currentInput").value = placeData.displayName;
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      () => {
+        alert("현재 위치를 가져오지 못했습니다.");
+      }
+    );
+  });
+
+  document.getElementById("centerMapBtn")?.addEventListener("click", () => {
+    if (currentPlace?.location) {
+      map.panTo(currentPlace.location);
+      map.setZoom(15);
+    } else {
+      map.panTo({ lat: 22.1666, lng: 113.5461 });
+      map.setZoom(13);
+    }
+  });
+}
+
+async function executeSearch() {
+  selectedRouteIndex = 0;
+  setSearchLoading(true);
+  setMapPickMode(null);
+
+  try {
+    await resolvePlaceIfNeeded("current");
+    await resolvePlaceIfNeeded("destination");
+
+    if (!currentPlace) {
+      alert("현재 위치 / 출발지를 입력하거나 자동완성 목록에서 선택해주세요.");
+      return;
+    }
+
+    if (!destinationPlace) {
+      alert("목적지를 입력하거나 자동완성 목록에서 선택해주세요.");
+      return;
+    }
+
+    const bottomSheet = document.getElementById("bottomSheet");
+    bottomSheet.classList.remove("collapsed");
+
+    if (currentMode === "bus") {
+      renderBusPlaceholder();
+      clearMapOverlays();
+      return;
+    }
+
+    let results = [];
+
+    if (currentMode === "walk") {
+      results = await recommendWalkOnly(currentPlace, destinationPlace);
+    } else {
+      results = await recommendShuttleRoutes(
+        appData.routes,
+        appData.destinations,
+        currentPlace,
+        destinationPlace
+      );
+    }
+
+    renderResults(results);
+
+    if (results.length) {
+      await drawRecommendedRoute(results[0]);
+    } else {
+      clearMapOverlays();
+    }
+  } catch (error) {
+    console.error(error);
+    alert(`오류 발생: ${error.message}`);
+  } finally {
+    setSearchLoading(false);
+  }
 }
 
 async function main() {
   appData = await loadAppData();
+  setupBottomSheet();
   await initMapAndAutocomplete();
+  setMode("shuttle");
 
   const searchBtn = document.getElementById("searchBtn");
   const swapBtn = document.getElementById("swapBtn");
   const pickCurrentBtn = document.getElementById("pickCurrentBtn");
   const pickDestinationBtn = document.getElementById("pickDestinationBtn");
+  const tabShuttle = document.getElementById("tabShuttle");
+  const tabWalk = document.getElementById("tabWalk");
+  const tabBus = document.getElementById("tabBus");
 
   swapBtn.addEventListener("click", () => {
     if (isSearching) return;
@@ -1345,47 +1485,25 @@ async function main() {
     setMapPickMode(mapPickMode === "destination" ? null : "destination");
   });
 
+  tabShuttle.addEventListener("click", () => {
+    if (isSearching) return;
+    setMode("shuttle");
+  });
+
+  tabWalk.addEventListener("click", () => {
+    if (isSearching) return;
+    setMode("walk");
+  });
+
+  tabBus.addEventListener("click", () => {
+    if (isSearching) return;
+    setMode("bus");
+    renderBusPlaceholder();
+  });
+
   searchBtn.addEventListener("click", async () => {
     if (isSearching) return;
-
-    try {
-      selectedRouteIndex = 0;
-      setSearchLoading(true);
-      setMapPickMode(null);
-
-      await resolvePlaceIfNeeded("current");
-      await resolvePlaceIfNeeded("destination");
-
-      if (!currentPlace) {
-        alert("현재 위치 / 출발지를 입력하거나 자동완성 목록에서 선택해주세요.");
-        return;
-      }
-
-      if (!destinationPlace) {
-        alert("목적지를 입력하거나 자동완성 목록에서 선택해주세요.");
-        return;
-      }
-
-      const results = await recommendRoutes(
-        appData.routes,
-        appData.destinations,
-        currentPlace,
-        destinationPlace
-      );
-
-      renderResults(results);
-
-      if (results.length) {
-        await drawRecommendedRoute(results[0]);
-      } else {
-        clearMapOverlays();
-      }
-    } catch (error) {
-      console.error(error);
-      alert(`오류 발생: ${error.message}`);
-    } finally {
-      setSearchLoading(false);
-    }
+    await executeSearch();
   });
 }
 
