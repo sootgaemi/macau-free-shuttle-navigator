@@ -42,7 +42,7 @@ let currentAutocomplete = null;
 let destinationAutocomplete = null;
 let isSearching = false;
 let mapPickMode = null;
-let currentMode = "shuttle"; // shuttle | walk | bus
+let currentMode = "shuttle";
 
 let latestSearchContext = {
   nearHotelNotice: "",
@@ -50,6 +50,10 @@ let latestSearchContext = {
   targetHotelByNearby: false,
   directWalk: null,
 };
+
+let sheetState = "mid";
+let sheetDragStartY = 0;
+let sheetDragStartState = "mid";
 
 async function loadJson(path) {
   const response = await fetch(path);
@@ -99,8 +103,13 @@ function setSearchLoading(loading) {
     resultList.innerHTML = `
       <div class="route-card active">
         <div class="badge">검색중</div>
-        <h3>경로를 계산하고 있습니다</h3>
-        <p>잠시만 기다려주세요.</p>
+        <div class="route-card__hero">
+          <div class="route-card__hero-label">계산중</div>
+          <div class="route-card__hero-time">...</div>
+          <div class="route-card__hero-sub">경로를 계산하고 있습니다</div>
+        </div>
+        <h3>잠시만 기다려주세요</h3>
+        <p>도보, 셔틀, 하차 후 이동 구간을 계산 중입니다.</p>
       </div>
     `;
   }
@@ -167,6 +176,55 @@ function setMapPickMode(mode) {
   }
 }
 
+function setSheetState(nextState) {
+  sheetState = nextState;
+  const sheet = document.getElementById("bottomSheet");
+  sheet.classList.remove("sheet-collapsed", "sheet-mid", "sheet-expanded");
+
+  if (nextState === "collapsed") sheet.classList.add("sheet-collapsed");
+  else if (nextState === "expanded") sheet.classList.add("sheet-expanded");
+  else sheet.classList.add("sheet-mid");
+}
+
+function toggleSheetCollapse() {
+  if (sheetState === "collapsed") setSheetState("mid");
+  else setSheetState("collapsed");
+}
+
+function collapseSearchPanel() {
+  document.getElementById("searchPanel")?.classList.add("compact");
+}
+
+function expandSearchPanel() {
+  document.getElementById("searchPanel")?.classList.remove("compact");
+}
+
+function updateMapSummary(route, rank = 1) {
+  const card = document.getElementById("mapRouteSummary");
+  const timeEl = document.getElementById("mapSummaryTime");
+  const titleEl = document.getElementById("mapSummaryTitle");
+  const metaEl = document.getElementById("mapSummaryMeta");
+
+  if (!route) {
+    card.classList.add("hidden");
+    return;
+  }
+
+  card.classList.remove("hidden");
+  card.querySelector(".map-route-summary__badge").textContent = `추천 ${rank}`;
+
+  if (route.recommendation_mode === "direct_walk") {
+    timeEl.textContent = `${route.directWalkMinutes}분`;
+    titleEl.textContent = "도보 직행";
+    metaEl.textContent = `${formatKmFromMeters(route.directWalkDistanceMeters)} · 셔틀 없이 바로 이동`;
+    return;
+  }
+
+  timeEl.textContent = `${route.totalMinutes}분`;
+  titleEl.textContent = route.title_display;
+  metaEl.textContent = `도보 ${route.walk1Minutes}분 · 셔틀 ${route.shuttleMinutes}분${route.walk2Minutes > 0 ? ` · 도보 ${route.walk2Minutes}분` : ""}`;
+}
+
 function isInsideMacau(lat, lng) {
   return (
     lat <= MACAU_BOUNDS.north &&
@@ -190,7 +248,6 @@ function hideAutocompleteDropdown() {
 
 function extractPlaceData(place) {
   if (!place) return null;
-
   const geometryLocation = place.geometry?.location;
   if (!geometryLocation) return null;
 
@@ -204,9 +261,7 @@ function extractPlaceData(place) {
       ? geometryLocation.lng()
       : geometryLocation.lng;
 
-  if (!isInsideMacau(lat, lng)) {
-    return null;
-  }
+  if (!isInsideMacau(lat, lng)) return null;
 
   return {
     displayName: place.name || place.formatted_address || "",
@@ -260,10 +315,7 @@ function buildHotelCatalog(routes) {
     const item = mapByName.get(name);
     item.aliases.add(normalizeText(name));
     item.aliases.add(normalizeText(query));
-
-    (HOTEL_ALIASES[name] || []).forEach((alias) => {
-      item.aliases.add(normalizeText(alias));
-    });
+    (HOTEL_ALIASES[name] || []).forEach((alias) => item.aliases.add(normalizeText(alias)));
   });
 
   return Array.from(mapByName.values()).map((item) => ({
@@ -290,7 +342,6 @@ function detectHotelByText(hotelCatalog, rawText) {
 
 function normalizeRoutePoint(point) {
   if (!point) return null;
-
   if (typeof point === "string") return point;
 
   if (typeof point.lat === "number" && typeof point.lng === "number") {
@@ -306,10 +357,7 @@ function normalizeRoutePoint(point) {
     typeof point.location.lat === "number" &&
     typeof point.location.lng === "number"
   ) {
-    return {
-      lat: Number(point.location.lat),
-      lng: Number(point.location.lng),
-    };
+    return { lat: Number(point.location.lat), lng: Number(point.location.lng) };
   }
 
   if (
@@ -317,10 +365,7 @@ function normalizeRoutePoint(point) {
     typeof point.location.lat === "function" &&
     typeof point.location.lng === "function"
   ) {
-    return {
-      lat: Number(point.location.lat()),
-      lng: Number(point.location.lng()),
-    };
+    return { lat: Number(point.location.lat()), lng: Number(point.location.lng()) };
   }
 
   return point;
@@ -432,7 +477,6 @@ async function geocodeAddress(address) {
 
 async function toLatLng(point) {
   const normalized = normalizeRoutePoint(point);
-
   if (typeof normalized === "string") {
     const geo = await geocodeAddress(normalized);
     return {
@@ -440,7 +484,6 @@ async function toLatLng(point) {
       lng: typeof geo.lng === "function" ? geo.lng() : geo.lng,
     };
   }
-
   return normalized;
 }
 
@@ -471,18 +514,16 @@ function getPolylineOptionsByType(segmentType) {
       strokeColor: "#2563eb",
       strokeOpacity: 0,
       strokeWeight: 5,
-      icons: [
-        {
-          icon: {
-            path: "M 0,-1 0,1",
-            strokeOpacity: 1,
-            strokeColor: "#2563eb",
-            scale: 4,
-          },
-          offset: "0",
-          repeat: "14px",
+      icons: [{
+        icon: {
+          path: "M 0,-1 0,1",
+          strokeOpacity: 1,
+          strokeColor: "#2563eb",
+          scale: 4,
         },
-      ],
+        offset: "0",
+        repeat: "14px",
+      }],
     };
   }
 
@@ -491,18 +532,16 @@ function getPolylineOptionsByType(segmentType) {
       strokeColor: "#ea580c",
       strokeOpacity: 0,
       strokeWeight: 5,
-      icons: [
-        {
-          icon: {
-            path: "M 0,-1 0,1",
-            strokeOpacity: 1,
-            strokeColor: "#ea580c",
-            scale: 4,
-          },
-          offset: "0",
-          repeat: "14px",
+      icons: [{
+        icon: {
+          path: "M 0,-1 0,1",
+          strokeOpacity: 1,
+          strokeColor: "#ea580c",
+          scale: 4,
         },
-      ],
+        offset: "0",
+        repeat: "14px",
+      }],
     };
   }
 
@@ -515,14 +554,12 @@ function getPolylineOptionsByType(segmentType) {
 
 function drawFallbackDashedLine(from, to, segmentType) {
   const options = getPolylineOptionsByType(segmentType);
-
   const polyline = new google.maps.Polyline({
     path: [from, to],
     geodesic: true,
     ...options,
     map,
   });
-
   routeOverlays.push(polyline);
 }
 
@@ -559,11 +596,7 @@ async function computePreciseRouteNoDraw(origin, destination, travelMode) {
 
 async function computeWalkingRouteFlexible(origin, destination) {
   try {
-    return await computePreciseRouteNoDraw(
-      origin,
-      destination,
-      google.maps.TravelMode.WALKING
-    );
+    return await computePreciseRouteNoDraw(origin, destination, google.maps.TravelMode.WALKING);
   } catch (error) {
     const from = await toLatLng(origin);
     const to = await toLatLng(destination);
@@ -580,11 +613,7 @@ async function computeWalkingRouteFlexible(origin, destination) {
 }
 
 async function computeDrivingRouteStrict(origin, destination) {
-  return await computePreciseRouteNoDraw(
-    origin,
-    destination,
-    google.maps.TravelMode.DRIVING
-  );
+  return await computePreciseRouteNoDraw(origin, destination, google.maps.TravelMode.DRIVING);
 }
 
 async function drawSegment(origin, destination, travelMode, segmentType) {
@@ -668,21 +697,12 @@ function buildDirectWalkCard(directWalk) {
   };
 }
 
-async function buildHotelModeCandidates({
-  routes,
-  destinations,
-  currentOrigin,
-  targetHotel,
-  actualDestination,
-}) {
+async function buildHotelModeCandidates({ routes, destinations, currentOrigin, targetHotel, actualDestination }) {
   const candidates = [];
   const errors = [];
 
   const targetHotelWalk = await computeWalkingRouteFlexible(currentOrigin, targetHotel.hotel_query);
-  const hotelToActualDestination = await computeWalkingRouteFlexible(
-    targetHotel.hotel_query,
-    actualDestination
-  );
+  const hotelToActualDestination = await computeWalkingRouteFlexible(targetHotel.hotel_query, actualDestination);
   const finalWalkFromHotelNeeded =
     hotelToActualDestination.distanceMeters > SETTINGS.HOTEL_FINAL_WALK_IGNORE_M;
 
@@ -818,15 +838,9 @@ async function buildHotelModeCandidates({
   return { candidates, errors };
 }
 
-async function buildGeneralCandidates({
-  routes,
-  destinations,
-  currentOrigin,
-  finalDestination,
-}) {
+async function buildGeneralCandidates({ routes, destinations, currentOrigin, finalDestination }) {
   const candidates = [];
   const errors = [];
-
   const directWalkToDestination = await computeWalkingRouteFlexible(currentOrigin, finalDestination);
 
   for (const route of routes) {
@@ -899,7 +913,6 @@ async function buildGeneralCandidates({
 
 async function recommendShuttleRoutes(routes, destinations, currentPlaceObj, destinationPlaceObj) {
   const activeRoutes = routes.filter((route) => route.status === "active");
-
   const currentOrigin = currentPlaceObj?.location || getPlaceLocationString(currentPlaceObj);
   const finalDestination = destinationPlaceObj?.location || getPlaceLocationString(destinationPlaceObj);
 
@@ -980,8 +993,27 @@ async function recommendWalkOnly(currentPlaceObj, destinationPlaceObj) {
 
   const directWalk = await computeWalkingRouteFlexible(currentOrigin, finalDestination);
   latestSearchContext.directWalk = directWalk;
-
   return [buildDirectWalkCard(directWalk)];
+}
+
+function buildRouteHero(route) {
+  if (route.recommendation_mode === "direct_walk") {
+    return `
+      <div class="route-card__hero">
+        <div class="route-card__hero-label">총 예상시간</div>
+        <div class="route-card__hero-time">${route.directWalkMinutes}분</div>
+        <div class="route-card__hero-sub">${formatKmFromMeters(route.directWalkDistanceMeters)} · 도보 직행</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="route-card__hero">
+      <div class="route-card__hero-label">총 예상시간</div>
+      <div class="route-card__hero-time">${route.totalMinutes}분</div>
+      <div class="route-card__hero-sub">도보 ${route.walk1Minutes}분 · 셔틀 ${route.shuttleMinutes}분${route.walk2Minutes > 0 ? ` · 도보 ${route.walk2Minutes}분` : ""}</div>
+    </div>
+  `;
 }
 
 function renderResults(results) {
@@ -995,6 +1027,7 @@ function renderResults(results) {
         <p>출발지와 목적지를 다시 확인해주세요.</p>
       </div>
     `;
+    updateMapSummary(null);
     return;
   }
 
@@ -1009,8 +1042,8 @@ function renderResults(results) {
           <div class="route-card ${index === selectedRouteIndex ? "active" : ""}" data-route-index="${index}">
             <div class="badge">추천 ${index + 1}</div>
             ${nearHotelNoticeBlock}
+            ${buildRouteHero(route)}
             <h3>도보 직행</h3>
-            <p><strong>총 ${route.directWalkMinutes}분</strong></p>
             <p><strong>거리:</strong> ${formatKmFromMeters(route.directWalkDistanceMeters)}</p>
             <p><strong>비고:</strong> ${route.note || "-"}</p>
           </div>
@@ -1025,8 +1058,8 @@ function renderResults(results) {
         <div class="route-card ${index === selectedRouteIndex ? "active" : ""}" data-route-index="${index}">
           <div class="badge">추천 ${index + 1}</div>
           ${nearHotelNoticeBlock}
+          ${buildRouteHero(route)}
           <h3>${route.title_display}</h3>
-          <p><strong>총 ${route.totalMinutes}분</strong></p>
           <p><strong>도보 1:</strong> ${route.walk1Minutes}분 · ${formatKmFromMeters(route.walk1DistanceMeters)}</p>
           <p><strong>셔틀:</strong> ${route.shuttleMinutes}분 · ${formatKmFromMeters(route.shuttleDistanceMeters)}</p>
           <p><strong>노선:</strong> ${route.shuttleBusName}</p>
@@ -1044,10 +1077,13 @@ function renderResults(results) {
       renderResults(latestResults);
       const selectedRoute = latestResults[selectedRouteIndex];
       if (selectedRoute) {
+        updateMapSummary(selectedRoute, selectedRouteIndex + 1);
         await drawRecommendedRoute(selectedRoute);
       }
     });
   });
+
+  updateMapSummary(results[0], 1);
 }
 
 function renderBusPlaceholder() {
@@ -1055,11 +1091,17 @@ function renderBusPlaceholder() {
   resultList.innerHTML = `
     <div class="route-card active">
       <div class="badge">준비중</div>
+      <div class="route-card__hero">
+        <div class="route-card__hero-label">상태</div>
+        <div class="route-card__hero-time">준비중</div>
+        <div class="route-card__hero-sub">향후 지원 예정</div>
+      </div>
       <h3>버스 기능</h3>
       <p>현재 버스 모드는 아직 구현 전입니다.</p>
       <p>향후 마카오 일반 버스 노선 데이터 또는 대중교통 API 연동 후 지원 예정입니다.</p>
     </div>
   `;
+  updateMapSummary(null);
 }
 
 async function drawRecommendedRoute(route) {
@@ -1238,14 +1280,12 @@ async function applyMapPickedLocation(type, latLng) {
 
   try {
     const placeData = await reverseGeocodeLatLng(latLng);
-
     const inputEl =
       type === "current"
         ? document.getElementById("currentInput")
         : document.getElementById("destinationInput");
 
     inputEl.value = placeData.displayName;
-
     if (type === "current") currentPlace = placeData;
     else destinationPlace = placeData;
 
@@ -1257,18 +1297,50 @@ async function applyMapPickedLocation(type, latLng) {
 }
 
 function setupBottomSheet() {
-  const bottomSheet = document.getElementById("bottomSheet");
   const toggleBtn = document.getElementById("toggleSheetBtn");
   const collapseBtn = document.getElementById("collapseSheetBtn");
   const handle = document.getElementById("sheetHandle");
 
-  function toggleSheet() {
-    bottomSheet.classList.toggle("collapsed");
-  }
+  toggleBtn?.addEventListener("click", toggleSheetCollapse);
+  collapseBtn?.addEventListener("click", toggleSheetCollapse);
+  handle?.addEventListener("click", toggleSheetCollapse);
 
-  toggleBtn?.addEventListener("click", toggleSheet);
-  collapseBtn?.addEventListener("click", toggleSheet);
-  handle?.addEventListener("click", toggleSheet);
+  const startDrag = (clientY) => {
+    sheetDragStartY = clientY;
+    sheetDragStartState = sheetState;
+  };
+
+  const endDrag = (clientY) => {
+    const diff = clientY - sheetDragStartY;
+
+    if (Math.abs(diff) < 25) return;
+
+    if (diff < -25) {
+      if (sheetDragStartState === "collapsed") setSheetState("mid");
+      else if (sheetDragStartState === "mid") setSheetState("expanded");
+    } else {
+      if (sheetDragStartState === "expanded") setSheetState("mid");
+      else if (sheetDragStartState === "mid") setSheetState("collapsed");
+    }
+  };
+
+  handle?.addEventListener("touchstart", (e) => {
+    startDrag(e.touches[0].clientY);
+  }, { passive: true });
+
+  handle?.addEventListener("touchend", (e) => {
+    endDrag(e.changedTouches[0].clientY);
+  }, { passive: true });
+
+  handle?.addEventListener("mousedown", (e) => {
+    startDrag(e.clientY);
+  });
+
+  window.addEventListener("mouseup", (e) => {
+    endDrag(e.clientY);
+  });
+
+  setSheetState("mid");
 }
 
 async function initMapAndAutocomplete() {
@@ -1324,7 +1396,6 @@ async function initMapAndAutocomplete() {
 
     currentPlace = extracted;
     currentInput.value = currentPlace.displayName || currentPlace.formattedAddress;
-
     setTimeout(() => {
       currentInput.blur();
       hideAutocompleteDropdown();
@@ -1344,7 +1415,6 @@ async function initMapAndAutocomplete() {
 
     destinationPlace = extracted;
     destinationInput.value = destinationPlace.displayName || destinationPlace.formattedAddress;
-
     setTimeout(() => {
       destinationInput.blur();
       hideAutocompleteDropdown();
@@ -1419,8 +1489,8 @@ async function executeSearch() {
       return;
     }
 
-    const bottomSheet = document.getElementById("bottomSheet");
-    bottomSheet.classList.remove("collapsed");
+    setSheetState("mid");
+    collapseSearchPanel();
 
     if (currentMode === "bus") {
       renderBusPlaceholder();
@@ -1444,9 +1514,11 @@ async function executeSearch() {
     renderResults(results);
 
     if (results.length) {
+      updateMapSummary(results[0], 1);
       await drawRecommendedRoute(results[0]);
     } else {
       clearMapOverlays();
+      updateMapSummary(null);
     }
   } catch (error) {
     console.error(error);
@@ -1469,6 +1541,7 @@ async function main() {
   const tabShuttle = document.getElementById("tabShuttle");
   const tabWalk = document.getElementById("tabWalk");
   const tabBus = document.getElementById("tabBus");
+  const searchPanel = document.getElementById("searchPanel");
 
   swapBtn.addEventListener("click", () => {
     if (isSearching) return;
@@ -1477,11 +1550,13 @@ async function main() {
 
   pickCurrentBtn.addEventListener("click", () => {
     if (isSearching) return;
+    expandSearchPanel();
     setMapPickMode(mapPickMode === "current" ? null : "current");
   });
 
   pickDestinationBtn.addEventListener("click", () => {
     if (isSearching) return;
+    expandSearchPanel();
     setMapPickMode(mapPickMode === "destination" ? null : "destination");
   });
 
@@ -1499,11 +1574,16 @@ async function main() {
     if (isSearching) return;
     setMode("bus");
     renderBusPlaceholder();
+    updateMapSummary(null);
   });
 
   searchBtn.addEventListener("click", async () => {
     if (isSearching) return;
     await executeSearch();
+  });
+
+  searchPanel.addEventListener("click", () => {
+    expandSearchPanel();
   });
 }
 
