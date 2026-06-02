@@ -203,6 +203,7 @@ function setSearchPanelCollapsed(collapsed) {
 }
 
 function collapseSearchPanel() {
+  dismissAutocompleteUi();
   setSearchPanelCollapsed(true);
 }
 
@@ -526,6 +527,128 @@ function buildShuttleBusName(route) {
   return `${route.hotel_display_name} Shuttle Bus`;
 }
 
+function normalizePlaceName(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u3131-\u318e\uac00-\ud7a3]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function placeNameMatches(a, b) {
+  const normalizedA = normalizePlaceName(a);
+  const normalizedB = normalizePlaceName(b);
+
+  if (!normalizedA || !normalizedB) return false;
+  if (normalizedA === normalizedB) return true;
+  return (
+    normalizedA.length >= 5 &&
+    normalizedB.length >= 5 &&
+    (normalizedA.includes(normalizedB) || normalizedB.includes(normalizedA))
+  );
+}
+
+function routePlaceMatches(placeText, targetText, hotelCatalog) {
+  if (placeNameMatches(placeText, targetText)) return true;
+
+  const placeHotel = detectHotelByText(hotelCatalog, placeText);
+  const targetHotel = detectHotelByText(hotelCatalog, targetText);
+
+  if (placeHotel && targetHotel) {
+    return placeHotel.hotel_display_name === targetHotel.hotel_display_name;
+  }
+
+  return false;
+}
+
+function detectHotelFromPlace(hotelCatalog, placeObj, fallbackInput = "") {
+  return (
+    detectHotelByText(hotelCatalog, fallbackInput) ||
+    detectHotelByText(hotelCatalog, placeObj?.displayName) ||
+    detectHotelByText(hotelCatalog, placeObj?.formattedAddress)
+  );
+}
+
+function dismissAutocompleteUi() {
+  document.getElementById("currentInput")?.blur();
+  document.getElementById("destinationInput")?.blur();
+
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+}
+
+async function buildTransferToBoardingOption({
+  routes,
+  destinations,
+  hotelCatalog,
+  originHotel,
+  transferStopLabel,
+}) {
+  if (!originHotel || !transferStopLabel) return null;
+
+  const transferCandidates = [];
+
+  for (const route of routes) {
+    const destinationMeta = getDestinationMeta(route, destinations);
+
+    if (
+      route.hotel_display_name === originHotel.hotel_display_name &&
+      routePlaceMatches(destinationMeta.label, transferStopLabel, hotelCatalog)
+    ) {
+      try {
+        const shuttleDrive = await computeDrivingRouteStrict(
+          route.hotel_query || route.hotel_display_name,
+          destinationMeta.query
+        );
+
+        transferCandidates.push({
+          mode: "origin_outbound",
+          shuttleBusName: buildShuttleBusName(route),
+          boardingLabel: originHotel.hotel_display_name,
+          dropOffLabel: destinationMeta.label,
+          shuttleMinutes: shuttleDrive.minutes,
+          shuttleDistanceMeters: shuttleDrive.distanceMeters,
+          direction_display: route.direction_outbound_time || route.direction_inbound_time,
+          headway_display: route.headway,
+          boardingForDraw: route.hotel_query || route.hotel_display_name,
+          dropoffForDraw: destinationMeta.query,
+          note: `${originHotel.hotel_display_name} 셔틀로 ${destinationMeta.label}까지 이동`,
+        });
+      } catch (error) {}
+    }
+
+    if (
+      routePlaceMatches(route.hotel_display_name, transferStopLabel, hotelCatalog) &&
+      routePlaceMatches(destinationMeta.label, originHotel.hotel_display_name, hotelCatalog)
+    ) {
+      try {
+        const shuttleDrive = await computeDrivingRouteStrict(
+          destinationMeta.query,
+          route.hotel_query || route.hotel_display_name
+        );
+
+        transferCandidates.push({
+          mode: "transfer_inbound",
+          shuttleBusName: buildShuttleBusName(route),
+          boardingLabel: destinationMeta.label,
+          dropOffLabel: route.hotel_display_name,
+          shuttleMinutes: shuttleDrive.minutes,
+          shuttleDistanceMeters: shuttleDrive.distanceMeters,
+          direction_display: route.direction_inbound_time || route.direction_outbound_time,
+          headway_display: route.headway,
+          boardingForDraw: destinationMeta.query,
+          dropoffForDraw: route.hotel_query || route.hotel_display_name,
+          note: `${destinationMeta.label}에서 ${route.hotel_display_name} 셔틀로 환승지까지 이동`,
+        });
+      } catch (error) {}
+    }
+  }
+
+  transferCandidates.sort((a, b) => a.shuttleMinutes - b.shuttleMinutes);
+  return transferCandidates[0] || null;
+}
+
 async function geocodeAddress(address) {
   return new Promise((resolve, reject) => {
     const geocoder = new google.maps.Geocoder();
@@ -777,7 +900,15 @@ function buildDirectWalkCard(directWalk) {
   };
 }
 
-async function buildHotelModeCandidates({ routes, destinations, currentOrigin, targetHotel, actualDestination }) {
+async function buildHotelModeCandidates({
+  routes,
+  destinations,
+  hotelCatalog,
+  currentOrigin,
+  originHotel,
+  targetHotel,
+  actualDestination,
+}) {
   const candidates = [];
   const errors = [];
 
@@ -797,37 +928,69 @@ async function buildHotelModeCandidates({ routes, destinations, currentOrigin, t
 
       const walkToBoarding = await computeWalkingRouteFlexible(currentOrigin, externalStop);
       const shuttleDrive = await computeDrivingRouteStrict(externalStop, targetHotel.hotel_query);
+      const transferToBoarding = await buildTransferToBoardingOption({
+        routes,
+        destinations,
+        hotelCatalog,
+        originHotel,
+        transferStopLabel: destinationMeta.label,
+      });
+      const useTransferToBoarding =
+        transferToBoarding &&
+        transferToBoarding.shuttleMinutes < walkToBoarding.minutes;
 
-      if (walkToBoarding.distanceMeters >= targetHotelWalk.distanceMeters - 50) continue;
+      if (
+        !useTransferToBoarding &&
+        walkToBoarding.distanceMeters >= targetHotelWalk.distanceMeters - 50
+      ) continue;
 
       const walk2Minutes = finalWalkFromHotelNeeded ? hotelToActualDestination.minutes : 0;
       const walk2DistanceMeters = finalWalkFromHotelNeeded ? hotelToActualDestination.distanceMeters : 0;
+      const accessMinutes = useTransferToBoarding ? transferToBoarding.shuttleMinutes : walkToBoarding.minutes;
+      const accessDistanceMeters = useTransferToBoarding
+        ? transferToBoarding.shuttleDistanceMeters
+        : walkToBoarding.distanceMeters;
 
       candidates.push({
         ...route,
         recommendation_mode: "hotel_inbound",
-        title_display: `${route.hotel_display_name} Shuttle Bus`,
+        title_display: useTransferToBoarding
+          ? `${route.hotel_display_name} Shuttle Bus 환승`
+          : `${route.hotel_display_name} Shuttle Bus`,
         shuttleBusName: buildShuttleBusName(route),
         boardingLabel: destinationMeta.label,
         dropOffLabel: targetHotel.hotel_display_name,
         walk1LabelTo: destinationMeta.label,
-        walk1Minutes: walkToBoarding.minutes,
-        walk1DistanceMeters: walkToBoarding.distanceMeters,
+        walk1Minutes: useTransferToBoarding ? 0 : walkToBoarding.minutes,
+        walk1DistanceMeters: useTransferToBoarding ? 0 : walkToBoarding.distanceMeters,
         shuttleFromLabel: destinationMeta.label,
         shuttleToLabel: targetHotel.hotel_display_name,
         shuttleMinutes: shuttleDrive.minutes,
         shuttleDistanceMeters: shuttleDrive.distanceMeters,
+        accessMode: useTransferToBoarding ? "shuttle_transfer" : "walk",
+        accessLabel: useTransferToBoarding ? "1차 셔틀" : "도보 1",
+        accessMinutes,
+        accessDistanceMeters,
+        accessShuttleBusName: useTransferToBoarding ? transferToBoarding.shuttleBusName : "",
+        accessBoardingLabel: useTransferToBoarding ? transferToBoarding.boardingLabel : "",
+        accessDropOffLabel: useTransferToBoarding ? transferToBoarding.dropOffLabel : "",
+        accessDirectionDisplay: useTransferToBoarding ? transferToBoarding.direction_display : "",
+        accessHeadwayDisplay: useTransferToBoarding ? transferToBoarding.headway_display : "",
+        accessBoardingForDraw: useTransferToBoarding ? transferToBoarding.boardingForDraw : null,
+        accessDropoffForDraw: useTransferToBoarding ? transferToBoarding.dropoffForDraw : null,
         walk2LabelFrom: targetHotel.hotel_display_name,
         walk2LabelTo: "목적지",
         walk2Minutes,
         walk2DistanceMeters,
-        totalMinutes: walkToBoarding.minutes + shuttleDrive.minutes + walk2Minutes,
-        calcNote: "호텔목적지모드(목적지 호텔 운행 셔틀 탑승)",
+        totalMinutes: accessMinutes + shuttleDrive.minutes + walk2Minutes,
+        calcNote: useTransferToBoarding
+          ? "호텔목적지모드(1회 환승 셔틀)"
+          : "호텔목적지모드(목적지 호텔 운행 셔틀 탑승)",
         originForDraw: currentOrigin,
         boardingForDraw: externalStop,
         dropoffForDraw: targetHotel.hotel_query,
         destinationForDraw: actualDestination,
-        walkStartFallback: walkToBoarding.isFallback
+        walkStartFallback: !useTransferToBoarding && walkToBoarding.isFallback
           ? { from: walkToBoarding.fallbackFrom, to: walkToBoarding.fallbackTo }
           : null,
         walkEndFallback:
@@ -836,7 +999,9 @@ async function buildHotelModeCandidates({ routes, destinations, currentOrigin, t
             : null,
         direction_display: route.direction_inbound_time || route.direction_outbound_time,
         headway_display: route.headway,
-        note: `목적지 호텔(${targetHotel.hotel_display_name}) 운행 셔틀 활용`,
+        note: useTransferToBoarding
+          ? `${transferToBoarding.note} 후 ${targetHotel.hotel_display_name} 셔틀로 환승`
+          : `목적지 호텔(${targetHotel.hotel_display_name}) 운행 셔틀 활용`,
         nearHotelNotice: latestSearchContext.nearHotelNotice || "",
       });
     } catch (error) {
@@ -1000,7 +1165,9 @@ async function recommendShuttleRoutes(routes, destinations, currentPlaceObj, des
   if (!finalDestination) throw new Error("목적지 정보가 없습니다.");
 
   const hotelCatalog = buildHotelCatalog(activeRoutes);
+  const currentInputValue = document.getElementById("currentInput")?.value || "";
   const destinationInputValue = document.getElementById("destinationInput")?.value || "";
+  const originHotel = detectHotelFromPlace(hotelCatalog, currentPlaceObj, currentInputValue);
 
   latestSearchContext = {
     nearHotelNotice: "",
@@ -1034,7 +1201,9 @@ async function recommendShuttleRoutes(routes, destinations, currentPlaceObj, des
     const hotelMode = await buildHotelModeCandidates({
       routes: activeRoutes,
       destinations,
+      hotelCatalog,
       currentOrigin,
+      originHotel,
       targetHotel,
       actualDestination: finalDestination,
     });
@@ -1091,9 +1260,17 @@ function buildRouteHero(route) {
     <div class="route-card__hero">
       <div class="route-card__hero-label">총 예상시간</div>
       <div class="route-card__hero-time">${route.totalMinutes}분</div>
-      <div class="route-card__hero-sub">도보 ${route.walk1Minutes}분 · 셔틀 ${route.shuttleMinutes}분${route.walk2Minutes > 0 ? ` · 도보 ${route.walk2Minutes}분` : ""}</div>
+      <div class="route-card__hero-sub">${buildRouteHeroSummary(route)}</div>
     </div>
   `;
+}
+
+function buildRouteHeroSummary(route) {
+  if (route.accessMode === "shuttle_transfer") {
+    return `셔틀 ${route.accessMinutes}분 · 셔틀 ${route.shuttleMinutes}분${route.walk2Minutes > 0 ? ` · 도보 ${route.walk2Minutes}분` : ""}`;
+  }
+
+  return `도보 ${route.walk1Minutes}분 · 셔틀 ${route.shuttleMinutes}분${route.walk2Minutes > 0 ? ` · 도보 ${route.walk2Minutes}분` : ""}`;
 }
 
 function renderResults(results) {
@@ -1133,6 +1310,14 @@ function renderResults(results) {
       const walk2Block = route.walk2Minutes > 0
         ? `<p><strong>도보 2:</strong> ${route.walk2Minutes}분 · ${formatKmFromMeters(route.walk2DistanceMeters)}</p>`
         : "";
+      const accessBlock = route.accessMode === "shuttle_transfer"
+        ? `
+          <p><strong>1차 셔틀 탑승:</strong> ${route.accessBoardingLabel}</p>
+          <p><strong>1차 셔틀:</strong> ${route.accessShuttleBusName} · ${route.accessMinutes}분</p>
+          <p><strong>환승 위치:</strong> ${route.accessDropOffLabel}</p>
+          <p><strong>2차 셔틀 탑승:</strong> ${route.boardingLabel}</p>
+        `
+        : `<p><strong>셔틀 탑승:</strong> ${route.boardingLabel}</p>`;
 
       return `
         <div class="route-card ${index === selectedRouteIndex ? "active" : ""}" data-route-index="${index}">
@@ -1140,7 +1325,8 @@ function renderResults(results) {
           ${nearHotelNoticeBlock}
           ${buildRouteHero(route)}
           <h3>${route.title_display}</h3>
-          <p><strong>도보 1:</strong> ${route.walk1Minutes}분 · ${formatKmFromMeters(route.walk1DistanceMeters)}</p>
+          ${route.accessMode === "shuttle_transfer" ? "" : `<p><strong>도보 1:</strong> ${route.walk1Minutes}분 · ${formatKmFromMeters(route.walk1DistanceMeters)}</p>`}
+          ${accessBlock}
           <p><strong>셔틀:</strong> ${route.shuttleMinutes}분 · ${formatKmFromMeters(route.shuttleDistanceMeters)}</p>
           <p><strong>노선:</strong> ${route.shuttleBusName}</p>
           <p><strong>운행:</strong> ${route.direction_display || "-"} / ${route.headway_display || "-"}</p>
@@ -1217,7 +1403,14 @@ async function drawRecommendedRoute(route) {
     return;
   }
 
-  if (route.walkStartFallback) {
+  if (route.accessMode === "shuttle_transfer" && route.accessBoardingForDraw && route.accessDropoffForDraw) {
+    await drawSegment(
+      route.accessBoardingForDraw,
+      route.accessDropoffForDraw,
+      google.maps.TravelMode.DRIVING,
+      "shuttle"
+    );
+  } else if (route.walkStartFallback) {
     drawFallbackDashedLine(route.walkStartFallback.from, route.walkStartFallback.to, "walkStart");
   } else {
     await drawSegment(route.originForDraw, route.boardingForDraw, google.maps.TravelMode.WALKING, "walkStart");
@@ -1238,16 +1431,28 @@ async function drawRecommendedRoute(route) {
     "출발지",
     "출발",
     "#2563eb",
-    currentPlace.displayName || currentPlace.formattedAddress || ""
+    route.accessMode === "shuttle_transfer" && route.accessShuttleBusName
+      ? `${currentPlace.displayName || currentPlace.formattedAddress || ""}<br>1차 탑승: ${route.accessBoardingLabel} (${route.accessShuttleBusName})`
+      : currentPlace.displayName || currentPlace.formattedAddress || ""
   );
 
-  addMarker(
-    boardingLatLng,
-    route.boardingLabel || "탑승지",
-    "탑승",
-    "#16a34a",
-    route.boardingLabel || ""
-  );
+  if (route.accessMode === "shuttle_transfer") {
+    addMarker(
+      boardingLatLng,
+      route.boardingLabel || "환승지",
+      "환승",
+      "#f59e0b",
+      `2차 탑승 위치: ${route.boardingLabel || "환승지"}<br>노선: ${route.shuttleBusName}`
+    );
+  } else {
+    addMarker(
+      boardingLatLng,
+      route.boardingLabel || "탑승지",
+      "탑승",
+      "#16a34a",
+      `탑승 위치: ${route.boardingLabel || "탑승지"}<br>노선: ${route.shuttleBusName}`
+    );
+  }
 
   try {
     const dropoffLatLng = await geocodeAddress(route.dropoffForDraw);
@@ -1549,6 +1754,7 @@ async function executeSearch() {
     }
 
     setSheetState("mid");
+    dismissAutocompleteUi();
     collapseSearchPanel();
 
     if (currentMode === "bus") {
