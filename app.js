@@ -191,12 +191,79 @@ function toggleSheetCollapse() {
   else setSheetState("collapsed");
 }
 
+function setSearchPanelCollapsed(collapsed) {
+  const searchPanel = document.getElementById("searchPanel");
+  const appShell = document.getElementById("appShell");
+
+  searchPanel?.classList.toggle("collapsed", collapsed);
+  appShell?.classList.toggle("search-collapsed", collapsed);
+}
+
 function collapseSearchPanel() {
-  document.getElementById("searchPanel")?.classList.add("compact");
+  setSearchPanelCollapsed(true);
 }
 
 function expandSearchPanel() {
-  document.getElementById("searchPanel")?.classList.remove("compact");
+  setSearchPanelCollapsed(false);
+}
+
+function toggleSearchPanelCollapse() {
+  const isCollapsed = document.getElementById("searchPanel")?.classList.contains("collapsed");
+  setSearchPanelCollapsed(!isCollapsed);
+}
+
+function setupSearchPanel() {
+  const searchDragHandle = document.getElementById("searchDragHandle");
+  const searchPeekBtn = document.getElementById("searchPeekBtn");
+
+  let dragStartY = 0;
+
+  const startDrag = (clientY) => {
+    dragStartY = clientY;
+  };
+
+  const endDrag = (clientY) => {
+    const diff = clientY - dragStartY;
+
+    if (Math.abs(diff) < 20) return;
+
+    if (diff < 0) {
+      expandSearchPanel();
+      return;
+    }
+
+    collapseSearchPanel();
+  };
+
+  searchDragHandle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleSearchPanelCollapse();
+  });
+
+  searchPeekBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    expandSearchPanel();
+  });
+
+  searchDragHandle?.addEventListener("touchstart", (event) => {
+    startDrag(event.touches[0].clientY);
+  }, { passive: true });
+
+  searchDragHandle?.addEventListener("mousedown", (event) => {
+    startDrag(event.clientY);
+  });
+
+  window.addEventListener("mouseup", (event) => {
+    if (dragStartY === 0) return;
+    endDrag(event.clientY);
+    dragStartY = 0;
+  });
+
+  window.addEventListener("touchend", (event) => {
+    if (dragStartY === 0) return;
+    endDrag(event.changedTouches[0].clientY);
+    dragStartY = 0;
+  }, { passive: true });
 }
 
 function updateMapSummary(route, rank = 1) {
@@ -1531,6 +1598,7 @@ async function executeSearch() {
 async function main() {
   appData = await loadAppData();
   setupBottomSheet();
+  setupSearchPanel();
   await initMapAndAutocomplete();
   setMode("shuttle");
 
@@ -1541,7 +1609,6 @@ async function main() {
   const tabShuttle = document.getElementById("tabShuttle");
   const tabWalk = document.getElementById("tabWalk");
   const tabBus = document.getElementById("tabBus");
-  const searchPanel = document.getElementById("searchPanel");
 
   swapBtn.addEventListener("click", () => {
     if (isSearching) return;
@@ -1580,10 +1647,6 @@ async function main() {
   searchBtn.addEventListener("click", async () => {
     if (isSearching) return;
     await executeSearch();
-  });
-
-  searchPanel.addEventListener("click", () => {
-    expandSearchPanel();
   });
 }
 

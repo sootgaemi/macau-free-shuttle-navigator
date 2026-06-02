@@ -10,64 +10,75 @@
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell" id="appShell">
     <header class="top-header">
       <div class="brand-wrap">
         <h1>마카오 무료 셔틀</h1>
-        <p>모바일 경로 추천</p>
+        <p>도보와 셔틀을 함께 보는 빠른 길찾기</p>
       </div>
       <button id="toggleSheetBtn" class="header-icon-btn" type="button" aria-label="결과 보기">
-        ☰
+        목록
       </button>
     </header>
 
     <section id="searchPanel" class="search-panel">
-      <div class="tab-row">
-        <button id="tabShuttle" class="mode-tab active" type="button">셔틀</button>
-        <button id="tabWalk" class="mode-tab" type="button">도보</button>
-        <button id="tabBus" class="mode-tab" type="button">버스</button>
+      <div id="searchDragHandle" class="search-panel-handle-wrap" aria-hidden="true">
+        <div class="search-panel-handle"></div>
       </div>
 
-      <div class="search-card">
-        <div class="input-row">
-          <span class="point start"></span>
-          <input id="currentInput" type="text" placeholder="출발지 입력" autocomplete="off" />
-          <button id="pickCurrentBtn" class="mini-btn" type="button">지도</button>
+      <div class="search-panel-content">
+        <div class="tab-row">
+          <button id="tabShuttle" class="mode-tab active" type="button">셔틀</button>
+          <button id="tabWalk" class="mode-tab" type="button">도보</button>
+          <button id="tabBus" class="mode-tab" type="button">버스</button>
         </div>
 
-        <button id="swapBtn" class="swap-btn" type="button" aria-label="출발지 목적지 바꾸기">
-          ⇅
-        </button>
+        <div class="search-card">
+          <div class="input-row">
+            <span class="point start"></span>
+            <input id="currentInput" type="text" placeholder="출발지를 입력하세요" autocomplete="off" />
+            <button id="pickCurrentBtn" class="mini-btn" type="button">지도</button>
+          </div>
 
-        <div class="input-row">
-          <span class="point end"></span>
-          <input id="destinationInput" type="text" placeholder="목적지 입력" autocomplete="off" />
-          <button id="pickDestinationBtn" class="mini-btn" type="button">지도</button>
+          <button id="swapBtn" class="swap-btn" type="button" aria-label="출발지와 목적지 바꾸기">
+            ⇅
+          </button>
+
+          <div class="input-row">
+            <span class="point end"></span>
+            <input id="destinationInput" type="text" placeholder="목적지를 입력하세요" autocomplete="off" />
+            <button id="pickDestinationBtn" class="mini-btn" type="button">지도</button>
+          </div>
         </div>
+
+        <div class="option-row">
+          <select id="optionType">
+            <option value="fastest">가장 빠르게</option>
+            <option value="leastWalk">도보 최소</option>
+            <option value="leastTransfer">환승 최소</option>
+          </select>
+          <button id="searchBtn" type="button">경로 찾기</button>
+        </div>
+
+        <div id="mapPickStatus" class="map-pick-status">지도 클릭 선택 기능 대기중</div>
+        <div id="modeNotice" class="mode-notice">기본 모드는 셔틀입니다.</div>
       </div>
 
-      <div class="option-row">
-        <select id="optionType">
-          <option value="fastest">가장 빠름</option>
-          <option value="leastWalk">적게 걷기</option>
-          <option value="leastTransfer">환승 최소</option>
-        </select>
-        <button id="searchBtn" type="button">경로 찾기</button>
-      </div>
-
-      <div id="mapPickStatus" class="map-pick-status">지도 클릭 기능 대기중</div>
-      <div id="modeNotice" class="mode-notice">기본 모드는 셔틀입니다.</div>
+      <button id="searchPeekBtn" class="search-peek-btn" type="button" aria-label="검색창 펼치기">
+        <span class="search-peek-btn__handle"></span>
+        <span class="search-peek-btn__label">검색창 열기</span>
+      </button>
     </section>
 
     <main class="map-stage">
-      <div id="mapClickHint" class="map-click-hint hidden">지도 클릭 대기중</div>
+      <div id="mapClickHint" class="map-click-hint hidden">지도 클릭 선택 대기중</div>
 
       <div class="map-actions left">
         <button id="myLocationBtn" class="map-pill-btn" type="button">내 위치</button>
       </div>
 
       <div class="map-actions right">
-        <button id="centerMapBtn" class="map-round-btn" type="button" aria-label="지도 중심">
+        <button id="centerMapBtn" class="map-round-btn" type="button" aria-label="지도 중심 이동">
           ◎
         </button>
       </div>
@@ -76,7 +87,7 @@
         <div class="map-route-summary__badge">추천 1</div>
         <div class="map-route-summary__time" id="mapSummaryTime">-</div>
         <div class="map-route-summary__title" id="mapSummaryTitle">경로를 선택해주세요.</div>
-        <div class="map-route-summary__meta" id="mapSummaryMeta">셔틀 / 도보 정보</div>
+        <div class="map-route-summary__meta" id="mapSummaryMeta">셔틀과 도보 정보</div>
       </div>
 
       <div id="map"></div>
@@ -90,7 +101,7 @@
       <div class="sheet-header">
         <div>
           <h2 id="sheetTitle">추천 경로</h2>
-          <p id="sheetSubtitle">지도를 보며 비교할 수 있습니다.</p>
+          <p id="sheetSubtitle">셔틀 경로를 비교해 보여드립니다.</p>
         </div>
         <button id="collapseSheetBtn" class="text-btn" type="button">접기</button>
       </div>
@@ -98,14 +109,14 @@
       <div id="resultList" class="result-list">
         <div class="empty-state">
           <strong>아직 검색 결과가 없습니다.</strong>
-          <p>출발지와 목적지를 입력한 뒤 경로를 검색해주세요.</p>
+          <p>출발지와 목적지를 입력한 뒤 경로를 찾아보세요.</p>
         </div>
       </div>
 
       <div class="legend-box">
         <div class="legend-item">
           <span class="legend-line walking-start"></span>
-          <span>출발지 → 탑승지 도보</span>
+          <span>출발지에서 탑승지까지 도보</span>
         </div>
         <div class="legend-item">
           <span class="legend-line shuttle-line"></span>
@@ -113,7 +124,7 @@
         </div>
         <div class="legend-item">
           <span class="legend-line walking-end"></span>
-          <span>하차지 → 목적지 도보</span>
+          <span>하차지에서 목적지까지 도보</span>
         </div>
       </div>
     </section>
