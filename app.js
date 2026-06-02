@@ -52,8 +52,6 @@ let latestSearchContext = {
 };
 
 let sheetState = "mid";
-let sheetDragStartY = 0;
-let sheetDragStartState = "mid";
 
 async function loadJson(path) {
   const response = await fetch(path);
@@ -179,11 +177,16 @@ function setMapPickMode(mode) {
 function setSheetState(nextState) {
   sheetState = nextState;
   const sheet = document.getElementById("bottomSheet");
+  const collapseBtn = document.getElementById("collapseSheetBtn");
   sheet.classList.remove("sheet-collapsed", "sheet-mid", "sheet-expanded");
 
   if (nextState === "collapsed") sheet.classList.add("sheet-collapsed");
   else if (nextState === "expanded") sheet.classList.add("sheet-expanded");
   else sheet.classList.add("sheet-mid");
+
+  if (collapseBtn) {
+    collapseBtn.textContent = nextState === "collapsed" ? "펼치기" : "접기";
+  }
 }
 
 function toggleSheetCollapse() {
@@ -212,58 +215,64 @@ function toggleSearchPanelCollapse() {
   setSearchPanelCollapsed(!isCollapsed);
 }
 
-function setupSearchPanel() {
-  const searchDragHandle = document.getElementById("searchDragHandle");
-  const searchPeekBtn = document.getElementById("searchPeekBtn");
+function bindVerticalGesture(elements, { onSwipeUp, onSwipeDown, onTap, threshold = 24 }) {
+  const targets = Array.isArray(elements) ? elements : [elements];
+  let startY = 0;
+  let tracking = false;
 
-  let dragStartY = 0;
-
-  const startDrag = (clientY) => {
-    dragStartY = clientY;
+  const begin = (clientY) => {
+    startY = clientY;
+    tracking = true;
   };
 
-  const endDrag = (clientY) => {
-    const diff = clientY - dragStartY;
+  const end = (clientY) => {
+    if (!tracking) return;
 
-    if (Math.abs(diff) < 20) return;
+    tracking = false;
+    const diff = clientY - startY;
 
-    if (diff < 0) {
-      expandSearchPanel();
+    if (Math.abs(diff) < threshold) {
+      onTap?.();
       return;
     }
 
-    collapseSearchPanel();
+    if (diff < 0) onSwipeUp?.();
+    else onSwipeDown?.();
   };
 
-  searchDragHandle?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleSearchPanelCollapse();
-  });
+  targets.forEach((target) => {
+    target?.addEventListener("touchstart", (event) => {
+      begin(event.touches[0].clientY);
+    }, { passive: true });
 
-  searchPeekBtn?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    expandSearchPanel();
-  });
-
-  searchDragHandle?.addEventListener("touchstart", (event) => {
-    startDrag(event.touches[0].clientY);
-  }, { passive: true });
-
-  searchDragHandle?.addEventListener("mousedown", (event) => {
-    startDrag(event.clientY);
-  });
-
-  window.addEventListener("mouseup", (event) => {
-    if (dragStartY === 0) return;
-    endDrag(event.clientY);
-    dragStartY = 0;
+    target?.addEventListener("mousedown", (event) => {
+      begin(event.clientY);
+    });
   });
 
   window.addEventListener("touchend", (event) => {
-    if (dragStartY === 0) return;
-    endDrag(event.changedTouches[0].clientY);
-    dragStartY = 0;
+    if (!tracking) return;
+    end(event.changedTouches[0].clientY);
   }, { passive: true });
+
+  window.addEventListener("mouseup", (event) => {
+    if (!tracking) return;
+    end(event.clientY);
+  });
+}
+
+function setupSearchPanel() {
+  const searchDragHandle = document.getElementById("searchDragHandle");
+  const searchPeekBtn = document.getElementById("searchPeekBtn");
+  bindVerticalGesture([searchDragHandle, searchPeekBtn], {
+    onSwipeUp: expandSearchPanel,
+    onSwipeDown: collapseSearchPanel,
+    onTap: () => {
+      const isCollapsed = document.getElementById("searchPanel")?.classList.contains("collapsed");
+      if (isCollapsed) expandSearchPanel();
+      else collapseSearchPanel();
+    },
+  });
 }
 
 function updateMapSummary(route, rank = 1) {
@@ -271,6 +280,10 @@ function updateMapSummary(route, rank = 1) {
   const timeEl = document.getElementById("mapSummaryTime");
   const titleEl = document.getElementById("mapSummaryTitle");
   const metaEl = document.getElementById("mapSummaryMeta");
+
+  if (!card || !timeEl || !titleEl || !metaEl) {
+    return;
+  }
 
   if (!route) {
     card.classList.add("hidden");
@@ -1367,44 +1380,23 @@ function setupBottomSheet() {
   const toggleBtn = document.getElementById("toggleSheetBtn");
   const collapseBtn = document.getElementById("collapseSheetBtn");
   const handle = document.getElementById("sheetHandle");
+  const header = document.querySelector(".sheet-header");
 
   toggleBtn?.addEventListener("click", toggleSheetCollapse);
   collapseBtn?.addEventListener("click", toggleSheetCollapse);
-  handle?.addEventListener("click", toggleSheetCollapse);
-
-  const startDrag = (clientY) => {
-    sheetDragStartY = clientY;
-    sheetDragStartState = sheetState;
-  };
-
-  const endDrag = (clientY) => {
-    const diff = clientY - sheetDragStartY;
-
-    if (Math.abs(diff) < 25) return;
-
-    if (diff < -25) {
-      if (sheetDragStartState === "collapsed") setSheetState("mid");
-      else if (sheetDragStartState === "mid") setSheetState("expanded");
-    } else {
-      if (sheetDragStartState === "expanded") setSheetState("mid");
-      else if (sheetDragStartState === "mid") setSheetState("collapsed");
-    }
-  };
-
-  handle?.addEventListener("touchstart", (e) => {
-    startDrag(e.touches[0].clientY);
-  }, { passive: true });
-
-  handle?.addEventListener("touchend", (e) => {
-    endDrag(e.changedTouches[0].clientY);
-  }, { passive: true });
-
-  handle?.addEventListener("mousedown", (e) => {
-    startDrag(e.clientY);
-  });
-
-  window.addEventListener("mouseup", (e) => {
-    endDrag(e.clientY);
+  bindVerticalGesture([handle, header], {
+    onSwipeUp: () => {
+      if (sheetState === "collapsed") setSheetState("mid");
+      else if (sheetState === "mid") setSheetState("expanded");
+    },
+    onSwipeDown: () => {
+      if (sheetState === "expanded") setSheetState("mid");
+      else if (sheetState === "mid") setSheetState("collapsed");
+    },
+    onTap: () => {
+      if (sheetState === "expanded") setSheetState("mid");
+      else toggleSheetCollapse();
+    },
   });
 
   setSheetState("mid");
